@@ -1,0 +1,83 @@
+Copyright (c) 2014 Idiap Research Institute, http://www.idiap.ch
+Written by Kenneth Funes <kenneth.funes@idiap.ch>
+
+1) OVERVIEW:
+
+The rgbd module is intended for streaming, visualizing and processing calibrated RGB-D data.
+It builds on top of the PCL library such that it also allows for connected devices (e.g. a
+Microsoft Kinect, Primensense Carmine 1.08 and 1.09, etc) through the OpenNI framework.
+Nevertheless it also allows for processing recorded data as long as calibration parameters
+are provided.
+
+We unfortunately can't anticipate all possible variants of file formats, etc. thus, it should
+be possible to modify the module for your specific needs. For this, we refer you to the source code.
+
+2) DEPENDENCIES.
+
+This module has the following dependencies:
+   - Python 2.7
+   - Numpy
+   - Scipy
+   - SWIG
+   - Point Cloud Library 1.7 (compiled with its patched version of OpenNI and respective drivers)
+   - Boost
+   - OpenCV (with python bindings)
+   - Qt 4.8
+   - PySide
+   - OpenGL
+   - PyOpenGL
+
+3) COMPILATION
+
+Use the standard cmake procedure:
+
+> mkdir build
+> cd build
+> cmake ..
+> make
+
+4) INSTALLATION:
+
+Once compiled, add the module directory to your python path, for example, by adding the rgbd module
+path to the environment variable "PYTHONPATH".
+
+5) EXAMPLES:
+
+Two main usage examples are given under the "Test" directory.
+
+5.1) recordedExample.py.
+
+For this example, you could download the EYEDIAP dataset from http://www.idiap.ch/dataset/eyediap
+Once you have it, please modify the Test/data.py file such that it properly refers to the location of the
+dataset in your system. Then, you could simply run and modify it to refer to the specific recording session:
+
+> python recordedExample.py
+
+We refer you to the source code to notice the format of the input data: normally separated video
+files for the rgb and depth video, together with appropriate calibration parameter files. For
+the EYEDIAP dataset, it might be also useful to refer to this document:
+
+http://publications.idiap.ch/index.php/publications/show/2805
+
+5.2) deviceExample.py
+
+This example makes use of the OpenNI/PCL framework. You should have a compliant device, such as
+a Microsoft Xbox 360 Kinect, a Primesense Carmine 1.08, 1.09, etc. Please make sure the "pcl_openni_viewer"
+sample program (provided within PCL) is working and, if that is the case, normally this example should work for
+your connected RGB-D camera.
+
+To execute it, please run:
+
+> python deviceExample.py
+
+Notice in this case the "source" data is an integer, denoting a device (although at this point it supports a single
+device), and the calibration information is "None" meaning it is obtained from OpenNI.
+
+
+
+
+
+
+
+
+
