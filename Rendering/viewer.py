@@ -322,15 +322,13 @@ class OpenGLObject():
             self.pose[6] = 1.0 #scale
         else:
             self.pose = pose
-        #Creates the vertex buffer object (VBO)
-        self.vbo = vbo.VBO(None)
         # Load the vertices data into the vertex buffer object
         self.data = self.mesh.packArrayData()
         #print '>> The Type of data in the constructor is ', self.data.dtype
         # Rescale the vertices according to the scale (only the vertices) #TODO Check if this scaling alters the original buffer
         if self.pose.size == 7:# pose can be a 4x4 matrix
             self.data[:self.mesh.vcs_q*3] = self.pose[6]*self.data[:self.mesh.vcs_q*3]
-        self.vbo.set_array(self.data)
+        self.vbo = vbo.VBO(self.data)
         if hasattr(self.mesh, 'faces'):
             self.indicesUploaded = False
         if hasattr(self.mesh, 'texture'):
