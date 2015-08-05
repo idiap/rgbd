@@ -24,3 +24,4 @@ OPENCV_PREFIX = '@OpenCV_PREFIX@'
 
 PCL_FOUND = '@PCL_FOUND@'.lower() == '1'
 
+CONNECTED_DEVICE_SUPPORT = '@PCL_FOUND@'.lower() == '1'

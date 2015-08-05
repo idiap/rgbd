@@ -23,7 +23,6 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>
 RGBDCalibration::RGBDCalibration() 
 {
     import_array();
-    interface = NULL;
     // Auxiliary
     count = 0;
     mirrorDeviceData = false;
@@ -35,15 +34,12 @@ RGBDCalibration::RGBDCalibration()
     fromDevice = false;
     calibrated_point_cloud.reset();
     continue_calibration_thread = true;
-
     compute_normals = false;
 
-    ne.setNormalEstimationMethod (ne.AVERAGE_DEPTH_CHANGE);
-    ne.setMaxDepthChangeFactor(0.1f);
-    ne.setNormalSmoothingSize(10.0f);
-    ne.setDepthDependentSmoothing(false);
+#ifdef PCL_OPENNI_DEVICE_SUPPORT
+    interface = NULL;
+#endif /* PCL_OPENNI_DEVICE_SUPPORT */
 
-    //boost::shared_ptr<boost::thread> aux_ptr_thread(new boost::thread(this->calibrationThread));
     boost::shared_ptr<boost::thread> aux_ptr_thread(new boost::thread(boost::bind(&RGBDCalibration::calibrationThread, this)));
     ptr_thread=aux_ptr_thread;
     frameTaken=true;
@@ -55,17 +51,18 @@ RGBDCalibration::~RGBDCalibration()
     setPause(true);
     continue_calibration_thread=false;
     ptr_thread->join();  // wait until the thread finishes
+
+#ifdef PCL_OPENNI_DEVICE_SUPPORT
     if(interface!=NULL){
     delete interface;
     interface = NULL;
     }
-    //{
-    //  boost::mutex::scoped_lock lock(mutex);
     openni_depth_to_calibrate.reset(); // Cleans everything it can
     openni_rgb_to_calibrate.reset();
 
     openni_calibrated_depth.reset();
     openni_calibrated_rgb.reset();
+#endif /* PCL_OPENNI_DEVICE_SUPPORT */
 
     if(py_depth_to_calibrate!=NULL)Py_DECREF(py_depth_to_calibrate);
     if(py_rgb_to_calibrate!=NULL)Py_DECREF(py_rgb_to_calibrate);
@@ -113,9 +110,9 @@ void RGBDCalibration::processPyRGBD(PyObject * depth, PyObject * rgb, int frameI
     }
 }
 
-void RGBDCalibration::processOpenNIRGBD( const boost::shared_ptr<openni_wrapper::Image>      & image,
-                                 const boost::shared_ptr<openni_wrapper::DepthImage> & depth,
-                                 float constant_in)
+#ifdef PCL_OPENNI_DEVICE_SUPPORT
+void RGBDCalibration::processOpenNIRGBD( const RGBDContainer::openni_image_ptr & image,
+                                         const RGBDContainer::openni_depth_ptr & depth, float constant_in)
 {
     if(!pause_state){
         {
@@ -135,17 +132,19 @@ void RGBDCalibration::processOpenNIRGBD( const boost::shared_ptr<openni_wrapper:
         }
     }
 }
+#endif /* PCL_OPENNI_DEVICE_SUPPORT */
 
 void RGBDCalibration::calibrationThread()
 {
     //  This function has a loop wchich indefinitely calibrating RGB-D data, only if needed.
     //  Note: here we can't create numpy arrays, as it is running in a different thread
-    std::cout<<"Running the calibration thread! "<<std::endl;
     // Auxiliary variables to take hold on the data to be calibrated
     PyObject * py_depth;
     PyObject * py_rgb;
-    boost::shared_ptr<openni_wrapper::DepthImage> openni_depth;
-    boost::shared_ptr<openni_wrapper::Image> openni_rgb;
+#ifdef PCL_OPENNI_DEVICE_SUPPORT
+    RGBDContainer::openni_image_ptr openni_rgb;
+    RGBDContainer::openni_depth_ptr openni_depth;
+#endif /* PCL_OPENNI_DEVICE_SUPPORT */
     // Pointers to the buffers data
     unsigned short * depth_buffer;
     unsigned int depth_bytes_per_line;
@@ -157,7 +156,7 @@ void RGBDCalibration::calibrationThread()
 
     bool * valid_buffer=NULL;
 
-    pcl::PointCloud<pcl::PointNormal>::Ptr auxPC;
+    RGBDContainer::RGBDContainer::PointCloudPtr auxPC;
     // Infinite loop retrieving data
     while(continue_calibration_thread){
         if((data_to_calibrate_available) && ((fromDevice&&frameTaken)||(!fromDevice))){
@@ -165,39 +164,54 @@ void RGBDCalibration::calibrationThread()
             {
                 boost::mutex::scoped_lock lock(RGBD_to_calibrate_mutex);
                 // We first "take" ownership of the the buffers and other objects to be calibrated
+#ifdef PCL_OPENNI_DEVICE_SUPPORT
                 if(fromDevice){
-                openni_depth=openni_depth_to_calibrate;
-                openni_rgb  = openni_rgb_to_calibrate;
-                openni_depth_to_calibrate.reset();
-                openni_rgb_to_calibrate.reset();
-                py_depth = NULL;
-                py_rgb = NULL;
-                py_depth_to_calibrate = NULL;
-                py_rgb_to_calibrate = NULL;
-                frameTaken=false;
+                    openni_depth=openni_depth_to_calibrate;
+                    openni_rgb  = openni_rgb_to_calibrate;
+                    openni_depth_to_calibrate.reset();
+                    openni_rgb_to_calibrate.reset();
+
+                    py_depth = NULL;
+                    py_rgb = NULL;
+                    py_depth_to_calibrate = NULL;
+                    py_rgb_to_calibrate = NULL;
+                    frameTaken=false;
                 }else{
-                //std::cout<<"Assigning the local python variables"<<std::endl;
-                py_depth = py_depth_to_calibrate;
-                py_rgb = py_rgb_to_calibrate;
-                py_depth_to_calibrate = NULL;
-                py_rgb_to_calibrate = NULL;
+#endif /* PCL_OPENNI_DEVICE_SUPPORT */
+                    //std::cout<<"Assigning the local python variables"<<std::endl;
+                    py_depth = py_depth_to_calibrate;
+                    py_rgb = py_rgb_to_calibrate;
+                    py_depth_to_calibrate = NULL;
+                    py_rgb_to_calibrate = NULL;
+#ifdef PCL_OPENNI_DEVICE_SUPPORT
                 }
+#endif /* PCL_OPENNI_DEVICE_SUPPORT */
                 // signal openni, or the caller application (from recorded data), that it is "available" to
                 // receive more RGB-D data
                 frameIndex = frameIndex_to_calibrate;
                 data_to_calibrate_available = false;
 
             }
+#ifdef PCL_OPENNI_DEVICE_SUPPORT
             // From the given objects we just need the pointers to the raw data
             if(fromDevice){
-                depth_buffer = (unsigned short *)openni_depth->getDepthMetaData ().Data ();
+                #ifdef USE_OPENNI2
+                    depth_buffer = (unsigned short *)openni_depth->getData ();
+                    rgb_malloc = openni_rgb->getEncoding() != pcl::io::openni2::Image::RGB;
+                #else /* USE_OPENNI2 */
+                    depth_buffer = (unsigned short *)openni_depth->getDepthMetaData ().Data ();
+                    rgb_malloc = openni_rgb->getEncoding() != openni_wrapper::Image::RGB;
+                #endif /* USE_OPENNI2 */
                 // If the format of the input image is not RGB, we'll need to create a buffer with RGB data
-                rgb_malloc = openni_rgb->getEncoding() != openni_wrapper::Image::RGB;
                 if (rgb_malloc){
                     rgb_buffer = (unsigned char *) malloc(openni_rgb->getHeight()*openni_rgb->getWidth()*3);
                     openni_rgb->fillRGB (openni_rgb->getWidth(), openni_rgb->getHeight(), rgb_buffer);
                 }else{
-                    rgb_buffer = (unsigned char * )openni_rgb->getMetaData ().RGB24Data ();
+                    #ifdef USE_OPENNI2
+                        rgb_buffer = (unsigned char * )openni_rgb->getData();
+                    #else /* USE_OPENNI2 */
+                        rgb_buffer = (unsigned char * )openni_rgb->getMetaData ().RGB24Data ();
+                    #endif /* USE_OPENNI2 */
                 }
                 if(mirrorDeviceData){
                     mirrorDepth(depth_buffer);
@@ -207,26 +221,30 @@ void RGBDCalibration::calibrationThread()
                 rgb_bytes_per_line = openni_rgb->getWidth()*3;
                 depth_bytes_per_line = openni_depth->getWidth()*2;
             }else{
+#endif /* PCL_OPENNI_DEVICE_SUPPORT */
                 depth_buffer = (unsigned short*)((PyArrayObject*)py_depth)->data;
                 rgb_buffer   = (unsigned char*)((PyArrayObject*)py_rgb)->data;
                 rgb_bytes_per_line   = ((PyArrayObject*)py_rgb)->strides[0];
                 depth_bytes_per_line = ((PyArrayObject*)py_depth)->strides[0];
                 rgb_malloc = false;
+#ifdef PCL_OPENNI_DEVICE_SUPPORT
             }
+#endif /* PCL_OPENNI_DEVICE_SUPPORT */
             if(calibration_enabled){
                  // Remove non-linear radial and tangential distortion (if needed)
                  rgb_cam->undistort_src_src  ( (void*)rgb_buffer     , rgb_bytes_per_line  , CV_MAKETYPE(CV_8U,3));
-                 // Depth undistorsion introduce outliers due to interpolation around boundaries (better not...)
+                 // Depth undistortion introduce outliers due to interpolation around boundaries (better not...)
                  //depth_cam->undistort_src_src( (void*)depth_buffer   , depth_bytes_per_line, CV_MAKETYPE(CV_16U, 1));
                  // Transform depth to millimeters (if needed)
                  depth_cam->mapToMillimeters(depth_buffer);
                  // Generate the point cloud from the depth map
-                 auxPC = convertDepthToPointCloud<pcl::PointNormal>(depth_buffer);
+                 auxPC = convertDepthToPointCloud(depth_buffer);
                  // Normals computation
+#ifdef PCL_OPENNI_DEVICE_SUPPORT
                  if(compute_normals){
-                     ne.setInputCloud(auxPC);
-                     ne.compute(*auxPC);
+                    // To insert here PCL methods for normals computation
                  }
+#endif /* PCL_OPENNI_DEVICE_SUPPORT */
                  // Transform the point cloud to the World coordinate system
                  // By design, the rotation and translation of the depth camera is the inverse. That means, that it
                  // transforms points in its coordinate system to the world coordinate system
@@ -237,9 +255,11 @@ void RGBDCalibration::calibrationThread()
                     registered=true;
                  }
                  valid_buffer=(bool*)malloc(auxPC->size()*sizeof(bool));
+#ifdef PCL_OPENNI_DEVICE_SUPPORT
                  auxPC->is_dense = false;
+#endif /* PCL_OPENNI_DEVICE_SUPPORT */
                  for (size_t i = 0; i< auxPC->size(); i ++){  // The normals are computed outside this function
-                    pcl::PointNormal & p = auxPC->points[i];
+                    RGBDContainer::PType & p = (*auxPC)[i];
                     valid_buffer[i] = !((p.z > 1.1)||(p.z < -0.5)||(p.z!=p.z));
                     // Fixes a problem with inconsistent normals and points which are NaNs, this is to prevent a bug in PCL
                     if(compute_normals) valid_buffer[i] = valid_buffer[i] && (p.normal_z == p.normal_z);// If the normal has a NAN
@@ -257,6 +277,7 @@ void RGBDCalibration::calibrationThread()
                 boost::mutex::scoped_lock lock(mutex);
                 //std::cout<<"Calibrated a frame. Waiting for it to be taken"<<std::endl;
                 if(calibrated_data_available){
+#ifdef PCL_OPENNI_DEVICE_SUPPORT
                     if(fromDevice){
                         // If the calibration is faster than the receiving application we clean the previous calibrated data.
                         // This is fine for devices, but it should not happen from recorded data, in which we are interested in not missing frames.
@@ -266,12 +287,17 @@ void RGBDCalibration::calibrationThread()
                         calibrated_rgb_buffer = NULL;
                         malloc_calibrated_rgb_buffer = false;
                     }else{
+#endif /* PCL_OPENNI_DEVICE_SUPPORT */
                         std::cout<<"WARNING: The RGBDCalibration over producing calibrated frames. MEMORY is leaking!"<<std::endl;
+#ifdef PCL_OPENNI_DEVICE_SUPPORT
                     }
+#endif /* PCL_OPENNI_DEVICE_SUPPORT */
                 }
                 // Now we store the calibrated data such that the caller application can retrieve it
+#ifdef PCL_OPENNI_DEVICE_SUPPORT
                 openni_calibrated_depth = openni_depth;
                 openni_calibrated_rgb = openni_rgb;
+#endif /* PCL_OPENNI_DEVICE_SUPPORT */
                 py_calibrated_depth = py_depth;
                 py_calibrated_rgb = py_rgb;
                 // when the rgb buffer needs to be regenerated, here it's stored as well
@@ -286,9 +312,11 @@ void RGBDCalibration::calibrationThread()
                 // other status about the data
                 calibrated_data_registered = registered;
                 calibrated_data_normals_computed = compute_normals;
+#ifdef PCL_OPENNI_DEVICE_SUPPORT
                 // "Cleans" the local temporary pointers
                 openni_depth.reset();
                 openni_rgb.reset();
+#endif /* PCL_OPENNI_DEVICE_SUPPORT */
                 auxPC.reset();
                 py_depth=NULL;
                 py_rgb=NULL;
@@ -305,7 +333,7 @@ void RGBDCalibration::calibrationThread()
     malloc_calibrated_rgb_buffer=false;
 }
 
-void RGBDCalibration::transformPointCloud(pcl::PointCloud<pcl::PointNormal>::Ptr cloud, PyArrayObject * PyR, PyArrayObject * PyT)
+void RGBDCalibration::transformPointCloud(RGBDContainer::PointCloudPtr cloud, PyArrayObject * PyR, PyArrayObject * PyT)
 {
     if(PyR != NULL){
         float * Rs = (float*)((PyArrayObject*)PyR)->data;
@@ -316,7 +344,7 @@ void RGBDCalibration::transformPointCloud(pcl::PointCloud<pcl::PointNormal>::Ptr
         R[6]=Rs[2*RStr];R[7]=Rs[2*RStr+1];R[8]=Rs[2*RStr+2];
         float v[3];
         for (size_t i = 0; i< cloud->size(); i ++){
-            pcl::PointNormal & p = cloud->points[i];
+            RGBDContainer::RGBDContainer::PType & p = (*cloud)[i];
             // We rotate the points
             v[0] = R[0]*p.x+R[1]*p.y +R[2]*p.z;
             v[1] = R[3]*p.x+R[4]*p.y +R[5]*p.z;
@@ -334,7 +362,7 @@ void RGBDCalibration::transformPointCloud(pcl::PointCloud<pcl::PointNormal>::Ptr
     if(PyT != NULL){
         float * t = (float*)((PyArrayObject*)PyT)->data;
         for (size_t i = 0; i < cloud->size(); i++){
-            pcl::PointNormal & p = cloud->points[i];
+            RGBDContainer::RGBDContainer::PType & p = (*cloud)[i];
             p.x += t[0];
             p.y += t[1];
             p.z += t[2];
@@ -352,8 +380,10 @@ bool RGBDCalibration::getFrameData(RGBDContainer & container)
         boost::mutex::scoped_lock lock(mutex);
         // Gives the data to the container
         container._cloud = calibrated_point_cloud;
+#ifdef PCL_OPENNI_DEVICE_SUPPORT
         container.image = openni_calibrated_rgb;
         container.depth = openni_calibrated_depth;
+#endif /* PCL_OPENNI_DEVICE_SUPPORT */
         container.img = py_calibrated_rgb;
         container.dpt = py_calibrated_depth;
         container.malloc_rgb_buffer = malloc_calibrated_rgb_buffer;
@@ -366,8 +396,10 @@ bool RGBDCalibration::getFrameData(RGBDContainer & container)
 
      // clean all data indicating it can receive more calibrated data
         calibrated_point_cloud.reset();
+#ifdef PCL_OPENNI_DEVICE_SUPPORT
         openni_calibrated_rgb.reset();
         openni_calibrated_depth.reset();
+#endif /* PCL_OPENNI_DEVICE_SUPPORT */
         py_calibrated_rgb=NULL;
         py_calibrated_depth=NULL;
         malloc_calibrated_rgb_buffer=false;
@@ -377,42 +409,39 @@ bool RGBDCalibration::getFrameData(RGBDContainer & container)
     return true;
 }
 
-template <typename PointT> typename pcl::PointCloud<PointT>::Ptr
-RGBDCalibration::convertDepthToPointCloud(const unsigned short * depth_map) const
+RGBDContainer::PointCloudPtr RGBDCalibration::convertDepthToPointCloud(const unsigned short * depth_map) const
 {
     /**
     This code was adapted from the PCL function pcl::OpenNIGrabber::convertToXYZPointCloud
     */
-    typename pcl::PointCloud<PointT>::Ptr cloud (new pcl::PointCloud <PointT>);
+    RGBDContainer::RGBDContainer::PointCloudPtr cloud (new RGBDContainer::PointCloud);
+#ifdef PCL_OPENNI_DEVICE_SUPPORT
     cloud->height = depth_cam->height;
     cloud->width = depth_cam->width;
     cloud->is_dense = false;
+    // Do something better with this id? TODO
+    cloud->header.frame_id = std::string("an id");
+#endif /* PCL_OPENNI_DEVICE_SUPPORT */
     // Allocates the memory for the point cloud
-    cloud->points.resize (cloud->height * cloud->width);
+    (*cloud).resize (depth_cam->height * depth_cam->width);
     // Get intrinsic parameters
     register float constant_x = 1.0f / depth_cam->getFocalLengthX();
     register float constant_y = 1.0f / depth_cam->getFocalLengthY();
     register float centerX = depth_cam->getCenterX();
     register float centerY = depth_cam->getCenterY();
-    // Do something better with this id? TODO
-    cloud->header.frame_id = std::string("an id");
 
     float bad_point;
-    if(cloud->is_dense){
-    bad_point = 0.0f;
-    }else{
     bad_point = std::numeric_limits<float>::quiet_NaN ();
-    }
     register int depth_idx = 0;
     for (int v = 0; v < depth_cam->height; ++v){
         for (register int u = 0; u <  depth_cam->width; ++u, ++depth_idx){
-            PointT& pt = cloud->points[depth_idx];
+            RGBDContainer::PType & pt = (*cloud)[depth_idx];
             // Check for invalid measurements
             if (depth_map[depth_idx] == 0 ){
-            pt.x = pt.y = pt.z = bad_point;
-            continue;
+                pt.x = pt.y = pt.z = bad_point;
+                continue;
             }else{
-            pt.z = depth_map[depth_idx] * 0.001f;
+                pt.z = depth_map[depth_idx] * 0.001f;
             if( (pt.z>10.0) && (pt.z<0.05)){
                 pt.x = pt.y = pt.z = bad_point;
             }else{
@@ -422,11 +451,13 @@ RGBDCalibration::convertDepthToPointCloud(const unsigned short * depth_map) cons
             }
         }
     }
+#ifdef PCL_OPENNI_DEVICE_SUPPORT
     cloud->sensor_origin_.setZero ();
     cloud->sensor_orientation_.w () = 1.0f;
     cloud->sensor_orientation_.x () = 0.0f;
     cloud->sensor_orientation_.y () = 0.0f;
     cloud->sensor_orientation_.z () = 0.0f;
+#endif /* PCL_OPENNI_DEVICE_SUPPORT */
     return (cloud);
 }
 
@@ -459,33 +490,11 @@ void RGBDCalibration::mirrorRGB (unsigned char* rgb_data){
     }
 }
 
-void RGBDCalibration::connectDevice (int device_index) 
-{
-    // Openni/PCL configuration
-    fromDevice = true;
-    pause_state = true;
-    if(interface==NULL){
-        interface = new myOpenNIGrabber();
-        boost::function<pcl::OpenNIGrabber::sig_cb_openni_image_depth_image> f3 = boost::bind (&RGBDCalibration::processOpenNIRGBD, this, _1, _2, _3);
-        interface->registerCallback (f3);
-        // Configuration of the normals computation
-        interface->start();
-        interface->stop ();//We stop it here due to a strange behavior from the Carmine camera
-    }
-}
-
-void RGBDCalibration::disconnectDevice()
-{
-    setPause(true);
-    if(interface!=NULL){
-    // Try to free the connected cameras TODO
-    }
-    fromDevice = false;
-}
-
 void RGBDCalibration::setPause(bool pause)
 {
-    if(interface==NULL)return;
+#ifdef PCL_OPENNI_DEVICE_SUPPORT
+    if(interface==NULL)
+        return;
     pause_state = pause;
     if(pause_state){
         interface->stop ();
@@ -493,13 +502,61 @@ void RGBDCalibration::setPause(bool pause)
         frameTaken=true;
         interface->start ();
     }
+#else
+    pause_state = pause;
+#endif /* PCL_OPENNI_DEVICE_SUPPORT */
+
 }
+
+// --------------------------------- PCL/OpenNI specific functions ------------------
+void RGBDCalibration::connectDevice (int device_index) 
+{
+#ifdef PCL_OPENNI_DEVICE_SUPPORT
+    // Openni/PCL configuration
+    fromDevice = true;
+    pause_state = true;
+    if(interface==NULL){
+        interface = new myOpenNIGrabber();
+        #ifdef USE_OPENNI2
+            boost::function<pcl::io::OpenNI2Grabber::sig_cb_openni_image_depth_image> f3 = boost::bind (&RGBDCalibration::processOpenNIRGBD, this, _1, _2, _3);
+        #else
+            boost::function<pcl::OpenNIGrabber::sig_cb_openni_image_depth_image> f3 = boost::bind (&RGBDCalibration::processOpenNIRGBD, this, _1, _2, _3);
+        #endif /* USE_OPENNI2 */
+        interface->registerCallback (f3);
+
+        // If the user wants to change from the default modes (for example, the camera resolution),
+        // it should be done here TODO
+
+        // Configuration of the normals computation
+        interface->start();
+        interface->stop ();//We stop it here due to a strange behavior from the Carmine camera
+    }
+#else
+    std::cout<<"Device functionality is not available. Please compile with PCL/OpenNI support"<<std::endl;
+#endif /* PCL_OPENNI_DEVICE_SUPPORT */
+}
+
+void RGBDCalibration::disconnectDevice()
+{
+#ifdef PCL_OPENNI_DEVICE_SUPPORT
+    setPause(true);
+    if(interface!=NULL){
+    // Try to free the connected cameras TODO
+    }
+    fromDevice = false;
+#endif /* PCL_OPENNI_DEVICE_SUPPORT */
+}
+
+
 
 void RGBDCalibration::getCameraIntrinsics (PyObject * depthIntrinsics) const
 {
     float * data = (float*)((PyArrayObject*)depthIntrinsics)->data;
     double fx, fy, cx, cy;
+    fx=0;fy=0; cx=0; cy=0;
+#ifdef PCL_OPENNI_DEVICE_SUPPORT
     interface->myGetDepthCameraIntrinsics (fx, fy, cx, cy);
+#endif /* PCL_OPENNI_DEVICE_SUPPORT */
     data[0] = (float)fx;
     data[2] = (float)cx;
     data[4] = (float)fy;
@@ -508,8 +565,10 @@ void RGBDCalibration::getCameraIntrinsics (PyObject * depthIntrinsics) const
     data[8] = 1.0;
 }
 
+
 bool RGBDCalibration::getDimensions(PyObject * dimensions)
 {
+#ifdef PCL_OPENNI_DEVICE_SUPPORT
     if(interface==NULL){
         return false;
     }else{
@@ -522,6 +581,9 @@ bool RGBDCalibration::getDimensions(PyObject * dimensions)
         data[3] = depth_height;
         return true;
     }
+#else
+    return false;
+#endif /* PCL_OPENNI_DEVICE_SUPPORT */
 }
 
 double RGBDCalibration::timeDiffms(timeval & start_t, timeval & end_t)
@@ -529,26 +591,19 @@ double RGBDCalibration::timeDiffms(timeval & start_t, timeval & end_t)
     return ((double)1000000*(end_t.tv_sec-start_t.tv_sec) + (double) (end_t.tv_usec - start_t.tv_usec))/1000.0;
 }
 
-
+#ifdef PCL_OPENNI_DEVICE_SUPPORT
 
 void RGBDCalibration::myOpenNIGrabber::myGetDepthCameraIntrinsics (double &depth_focal_length_x, double &depth_focal_length_y, double &depth_principal_point_x, double &depth_principal_point_y) const
 {
+#ifdef USE_OPENNI2
+    float constant_x = device_->getDepthFocalLength ();
+    float constant_y = device_->getDepthFocalLength ();
+#else
     float constant_x = device_->getDepthFocalLength (depth_width_);
     float constant_y = device_->getDepthFocalLength (depth_width_);
+#endif /* USE_OPENNI2 */
     float centerX = ((float)depth_width_ - 1.f) / 2.f;
     float centerY = ((float)depth_height_ - 1.f) / 2.f;
-
-    if (pcl_isfinite (depth_focal_length_x_))
-        constant_x =  static_cast<float> (depth_focal_length_x_);
-
-    if (pcl_isfinite (depth_focal_length_y_))
-        constant_y =  static_cast<float> (depth_focal_length_y_);
-
-    if (pcl_isfinite (depth_principal_point_x_))
-        centerX =  static_cast<float> (depth_principal_point_x_);
-
-    if (pcl_isfinite (depth_principal_point_y_))
-        centerY =  static_cast<float> (depth_principal_point_y_);
 
     depth_focal_length_x = constant_x;
     depth_focal_length_y = constant_y;
@@ -563,3 +618,4 @@ void RGBDCalibration::myOpenNIGrabber::myGetDimensions (int &rgb_width, int &rgb
     depth_width = (int)depth_width_;
     depth_height = (int)depth_height_;
 }
+#endif /* PCL_OPENNI_DEVICE_SUPPORT */

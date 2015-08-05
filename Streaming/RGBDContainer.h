@@ -23,16 +23,28 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>
 #define __RGBD_CONTAINER_H__
 
 #include <Python.h>
-#include "pcl/point_types.h"
-#include "pcl/point_cloud.h"
-#include "pcl/io/pcd_io.h"
+#include "config.h"
+
+#ifdef PCL_OPENNI_DEVICE_SUPPORT
+    #include "pcl/point_types.h"
+    #include "pcl/point_cloud.h"
+    #include "pcl/io/pcd_io.h"
+    #ifdef USE_OPENNI2
+        #include "pcl/io/openni2/openni.h"
+        #include <pcl/io/openni2_grabber.h>
+    #else
+        #include <pcl/io/openni_camera/openni_image.h>
+        #include <pcl/io/openni_camera/openni_depth_image.h>
+    #endif /* USE_OPENNI2 */
+#else /*PCL_OPENNI_DEVICE_SUPPORT*/
+    // If there is no PCL/OpenNI installation, for consistency we define a set of types which are useful to maintain PCL
+    // compatibility making the code "look" like pcl
+    #include <vector>
+    #include <boost/shared_ptr.hpp>
+
+#endif /*PCL_OPENNI_DEVICE_SUPPORT*/
+
 #include "arrayobject.h"
-#include <pcl/registration/correspondence_estimation_organized_projection.h>
-#include <pcl/registration/icp.h>
-#include <pcl/registration/registration.h>
-#include <pcl/io/openni_camera/openni_image.h>
-#include <pcl/io/openni_camera/openni_depth_image.h>
-#include <pcl/search/organized.h>
 #include <boost/math/special_functions/fpclassify.hpp>
 
 class RGBDContainer{
@@ -47,22 +59,39 @@ class RGBDContainer{
 
     friend class RGBDCalibration;  // For the RGBDCalibration to be able to replace the data inside this class
 public:
+#ifdef PCL_OPENNI_DEVICE_SUPPORT
     typedef pcl::PointNormal PType;
-    //typedef typename pcl::registration::CorrespondenceEstimationBase< pcl::PointNormal, pcl::PointNormal, float> CorrespondenceEstimationBase;
-    //typedef typename CorrespondenceEstimationBase::Ptr CorrespondenceEstimationPtr;
-
-    typedef  pcl::registration::CorrespondenceEstimationBase< pcl::PointNormal, pcl::PointNormal, float> CorrespondenceEstimationBase;
-    typedef  CorrespondenceEstimationBase::Ptr CorrespondenceEstimationPtr;
+    typedef pcl::PointCloud<PType> PointCloud;
+    typedef pcl::PointCloud<PType>::Ptr PointCloudPtr;
+    #ifdef USE_OPENNI2
+        typedef pcl::io::openni2::Image::Ptr openni_image_ptr;
+        typedef pcl::io::openni2::DepthImage::Ptr openni_depth_ptr;
+    #else
+        typedef boost::shared_ptr<openni_wrapper::Image> openni_image_ptr;
+        typedef boost::shared_ptr<openni_wrapper::DepthImage> openni_depth_ptr;
+    #endif /* USE_OPENNI2 */
+#else /*PCL_OPENNI_DEVICE_SUPPORT*/
+    struct PointNormal{
+        float x;
+        float y;
+        float z;
+        float normal_x;
+        float normal_y;
+        float normal_z;
+    };
+    typedef PointNormal PType;
+    typedef std::vector<PType> PointCloud;
+    typedef boost::shared_ptr<PointCloud> PointCloudPtr;
+#endif /*PCL_OPENNI_DEVICE_SUPPORT*/
 
     RGBDContainer ();
     RGBDContainer (PyObject * vertices, PyObject * normals);// Starts from numpy data
-    RGBDContainer (pcl::PointCloud<PType>::Ptr pointcloud);// Starts from PCL data
+    RGBDContainer (PointCloudPtr pointcloud);// Starts from PCL data
     ~RGBDContainer();
 
-    void printTest();
-
     void updateCloud(PyObject * vertices, PyObject * normals);
-    void updateCloud(pcl::PointCloud<PType>::Ptr pointcloud);
+    void updateCloud(PointCloudPtr pointcloud);//{ _cloud = pointcloud;}
+
 
     /**
      Returns numpy arrays wrapping the data contained in the point clouds
@@ -72,6 +101,8 @@ public:
     bool isRegistered();
 
     bool normalsComputed();
+
+    void test_function();
 
     bool lost;  // flag of success or not for after running ICP
 
@@ -83,10 +114,7 @@ private:
     void cleanData();
 
     // ---- The data this class is holding -----
-
-    pcl::PointCloud<PType>::Ptr _cloud;
-    boost::shared_ptr<openni_wrapper::Image> image;
-    boost::shared_ptr<openni_wrapper::DepthImage> depth;
+    PointCloudPtr _cloud;
 
     PyObject * img;  //The numpy reference to the image
     PyObject * dpt;  //The numpy reference to the depth
@@ -104,7 +132,12 @@ private:
     // if the RGB-D is actually registered, meaning there is one-to-one correspondence between depth and rgb pixels
     bool registered;
     bool normals_computed;
+
+#ifdef PCL_OPENNI_DEVICE_SUPPORT
+    openni_image_ptr image;
+    openni_depth_ptr depth;
+#endif /* PCL_OPENNI_DEVICE_SUPPORT */
 };
 
 
-#endif
+#endif  /* __RGBD_CONTAINER_H__ */

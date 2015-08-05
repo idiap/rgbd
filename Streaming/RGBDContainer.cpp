@@ -18,9 +18,12 @@ You should have received a copy of the GNU Lesser General Public License
 along with this program.  If not, see <http://www.gnu.org/licenses/>
 */
 
+#include "config.h"
 #include "RGBDContainer.h"
 
+#ifdef PCL_OPENNI_DEVICE_SUPPORT
 using namespace pcl;
+#endif /*PCL_OPENNI_DEVICE_SUPPORT*/
 
 RGBDContainer::RGBDContainer ()
 {
@@ -51,7 +54,7 @@ RGBDContainer::RGBDContainer (PyObject * vertices, PyObject * normals)
     updateCloud(vertices, normals);
 }
 
-RGBDContainer::RGBDContainer (PointCloud<PType>::Ptr pointcloud) 
+RGBDContainer::RGBDContainer (PointCloudPtr pointcloud)
 {
     import_array();//IMPORTANT, if I need to create numpy arrays
     dpt = NULL;
@@ -89,9 +92,11 @@ void RGBDContainer::cleanData()
     img = NULL;
     vcs = NULL;
     vnorms = NULL;
+    _cloud.reset();
+#ifdef PCL_OPENNI_DEVICE_SUPPORT
     image.reset();
     depth.reset();
-    _cloud.reset();
+#endif /* PCL_OPENNI_DEVICE_SUPPORT */
 }
 
 bool RGBDContainer::isRegistered()
@@ -104,21 +109,14 @@ bool RGBDContainer::normalsComputed()
         return normals_computed;
 }
 
-void RGBDContainer::printTest()
+void RGBDContainer::test_function()
 {
-    if (_cloud){
-        std::cout<<"No problem"<<std::endl;
-        for(pcl::PointCloud<PType>::iterator it = _cloud->begin(); it!=_cloud->end(); it++){
-            std::cout<<*it<<std::endl;
-        }
-    }else{
-        std::cout<<"The point cloud is empty"<<std::endl;
-    }
+        std::cout<<"printing"<<std::endl;
 }
 
 void RGBDContainer::updateCloud(PyObject * vertices, PyObject * normals)
 {
-    _cloud = pcl::PointCloud<pcl::PointNormal>::Ptr(new pcl::PointCloud<pcl::PointNormal>);
+    _cloud = PointCloudPtr(new PointCloud);
 
     float * vcs = (float*)((PyArrayObject*)vertices)->data;
     float * norms = (float*)((PyArrayObject*)normals)->data;
@@ -126,21 +124,23 @@ void RGBDContainer::updateCloud(PyObject * vertices, PyObject * normals)
     int vcsStr = ((PyArrayObject*)vertices)->strides[0]/4;
     int normStr = ((PyArrayObject*)normals)->strides[0]/4;
 
-    _cloud->points.resize(vcs_q);
+    (*_cloud).resize(vcs_q);
     for (int i=0;i<vcs_q;i++) {
-            _cloud->points[i].x = *(vcs + i*vcsStr);
-            _cloud->points[i].y = *(vcs + i*vcsStr + 1);
-            _cloud->points[i].z = *(vcs + i*vcsStr + 2);
+            (*_cloud)[i].x = *(vcs + i*vcsStr);
+            (*_cloud)[i].y = *(vcs + i*vcsStr + 1);
+            (*_cloud)[i].z = *(vcs + i*vcsStr + 2);
 
-            _cloud->points[i].normal_x = *(norms + i*normStr);
-            _cloud->points[i].normal_y = *(norms + i*normStr + 1);
-            _cloud->points[i].normal_z = *(norms + i*normStr + 2);
+            (*_cloud)[i].normal_x = *(norms + i*normStr);
+            (*_cloud)[i].normal_y = *(norms + i*normStr + 1);
+            (*_cloud)[i].normal_z = *(norms + i*normStr + 2);
     }
+#ifdef PCL_OPENNI_DEVICE_SUPPORT
     image.reset();
     depth.reset();
+#endif /* PCL_OPENNI_DEVICE_SUPPORT */
 }
 
-void RGBDContainer::updateCloud(PointCloud<PType>::Ptr pointcloud)
+void RGBDContainer::updateCloud(RGBDContainer::PointCloudPtr pointcloud)
 {
     _cloud = pointcloud;
 }
@@ -160,12 +160,14 @@ PyObject * RGBDContainer::getCloudArrays()
     if(img!=NULL){  //Already has the numpy array
         Py_INCREF(img);
         PyTuple_SetItem(toReturn, 0, img);
+#ifdef PCL_OPENNI_DEVICE_SUPPORT
     }else if(image){  // If otherwise contains an OpenNI/PCL image, we create a new numpy a array using the rgb_buffer
         npy_intp img_dim[] = {image->getHeight(),image->getWidth(),3};
         img = PyArray_SimpleNewFromData(3, img_dim, PyArray_UBYTE, (void *)rgb_buffer);
         // Save the reference into the tuple
         Py_INCREF(img);  // we keep a reference within the object
         PyTuple_SetItem(toReturn, 0, img);
+#endif /* PCL_OPENNI_DEVICE_SUPPORT */
     }else{  // There is nothing
         Py_INCREF(Py_None);
         PyTuple_SetItem(toReturn, 0, Py_None);
@@ -174,11 +176,17 @@ PyObject * RGBDContainer::getCloudArrays()
     if(dpt!=NULL){  //Already has the numpy array
         Py_INCREF(dpt);
         PyTuple_SetItem(toReturn, 1, dpt);
+#ifdef PCL_OPENNI_DEVICE_SUPPORT
     }else if(depth){
         npy_intp depth_dim[] = {depth->getHeight(),depth->getWidth()};
-        dpt = PyArray_SimpleNewFromData(2, depth_dim, NPY_SHORT, (void *)depth->getDepthMetaData ().Data ());
+        #ifdef USE_OPENNI2
+            dpt = PyArray_SimpleNewFromData(2, depth_dim, NPY_SHORT, (void *)depth->getData ());
+        #else
+            dpt = PyArray_SimpleNewFromData(2, depth_dim, NPY_SHORT, (void *)depth->getDepthMetaData ().Data ());
+        #endif /* USE_OPENNI2 */
         Py_INCREF(dpt);  // we keep a reference within the object
         PyTuple_SetItem(toReturn, 1, dpt);
+#endif /* PCL_OPENNI_DEVICE_SUPPORT */
     }else{
         Py_INCREF(Py_None);
         PyTuple_SetItem(toReturn, 1, Py_None);

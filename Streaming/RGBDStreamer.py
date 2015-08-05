@@ -22,6 +22,7 @@ from threading import Thread, Lock
 from RGBDCamera import RGBDCamera
 from RGBDSources import *
 from rgbd.Common.depthMesh import DepthMesh
+import rgbd.config as config
 from collections import deque
 import time
 from RGBDProcessing import *
@@ -69,6 +70,7 @@ class RGBDStreamer:
         self.FIFO = deque()
         self.frameLock = Lock()
         self.recordingsLock = Lock()
+        self.frameIndex = -1
 
         # Inner thread which is retrieving calibrated frames
         self.streamThread = Thread(target=self.streamLoop)
@@ -120,13 +122,18 @@ class RGBDStreamer:
         self.pclStreamer.setCalibration(self.calibrate)
         if source_description.__class__ is int:
             # If we are connecting to a device
-            self.pclStreamer.connectDevice(source_description)
-            if self.calibrate:
-                if calFile is None:
-                    self.KDH.setOpenNIParameters(self.pclStreamer)
-                else:
-                    self.KDH.setCalibration(calFile)
-            self.recordedSource = None
+            if config.CONNECTED_DEVICE_SUPPORT:
+                self.pclStreamer.connectDevice(source_description)
+                if self.calibrate:
+                    if calFile is not None:
+                        self.KDH.setCalibration(calFile)
+                    else:
+                        if config.PCL_FOUND:
+                            self.KDH.setOpenNIParameters(self.pclStreamer)
+                        pass
+                self.recordedSource = None
+            else:
+                return
         else:
             self.recordedSource = RGBD_VideoSource(source_description)
             self.N_frames = self.recordedSource.N_frames

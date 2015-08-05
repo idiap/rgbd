@@ -23,20 +23,23 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>
 #define __RGBD_CALIBRATION_H__
 
 #include <Python.h>
-#include "pcl/point_types.h"
-#include "pcl/point_cloud.h"
-#include "pcl/io/pcd_io.h" 
-#include <pcl/io/openni_grabber.h>
-#include <pcl/io/grabber.h>
-#include <pcl/features/normal_3d.h>
-#include <pcl/features/normal_3d_omp.h>
-#include <pcl/surface/organized_fast_mesh.h>
-#include <pcl/features/integral_image_normal.h>
+#include "config.h"
+
+#ifdef PCL_OPENNI_DEVICE_SUPPORT
+    #include "pcl/point_types.h"
+    #include "pcl/point_cloud.h"
+    #include "pcl/io/pcd_io.h"
+    #ifdef USE_OPENNI2
+        #include <pcl/io/openni2_grabber.h>
+        #include "pcl/io/openni2/openni.h"
+    #else
+        #include <pcl/io/openni_grabber.h>
+        #include <pcl/io/grabber.h>
+    #endif /* USE_OPENNI2 */
+#endif /*PCL_OPENNI_DEVICE_SUPPORT*/
+
 #include "RGBDContainer.h"
-#include <pcl/io/openni_camera/openni_image.h>
-#include <pcl/io/openni_camera/openni_depth_image.h>
-#include <pcl/PolygonMesh.h>
-#include <pcl/filters/filter.h>
+
 #include <boost/thread/mutex.hpp>
 #include <sys/time.h>
 #include <boost/thread.hpp>
@@ -66,6 +69,19 @@ public:
     void disconnectDevice();
 
     /**
+    When connected to a device, this function retrieves the camera parameters.
+
+    As it is using OpenNI to read data, then the depth map is registered to the RGB map, meaning that a single
+    intrinsics matrix is sufficient and the depth is given directly in milimeters.
+    */
+    void getCameraIntrinsics (PyObject *intrinsics) const;
+
+    /**
+    When connected to a device, this function retrieves the dimensions of rgb images and the depth maps.
+    */
+    bool getDimensions (PyObject * dimensions);
+
+    /**
     Set the streaming state.
     */
     void setPause(bool pause);
@@ -79,19 +95,6 @@ public:
     @return A flag indicating whether the process went fine (True:OK).
     */
     bool getFrameData(RGBDContainer & container);
-
-    /**
-    When connected to a device, this function retrieves the camera parameters.
-
-    As it is using OpenNI to read data, then the depth map is registered to the RGB map, meaning that a single
-    intrinsics matrix is sufficient and the depth is given directly in milimeters.
-    */
-    void getCameraIntrinsics (PyObject *intrinsics) const;
-
-    /**
-    When connected to a device, this function retrieves the dimensions of rgb images and the depth maps.
-    */
-    bool getDimensions (PyObject * dimensions);
 
     /**
     Enable or disable the data calibration functionality
@@ -129,18 +132,28 @@ private:
     /**
     This routine takes the rgb and depth buffers and calibrate the data
     */
-    template <typename PointT> typename pcl::PointCloud<PointT>::Ptr
-    convertDepthToPointCloud(const unsigned short * depth_buffer) const;
+    RGBDContainer::PointCloudPtr convertDepthToPointCloud(const unsigned short * depth_buffer) const;
 
+#ifdef PCL_OPENNI_DEVICE_SUPPORT
     /**
     Callback function for the grabber
     */
-    void processOpenNIRGBD( const boost::shared_ptr<openni_wrapper::Image>     & image ,
-                           const boost::shared_ptr<openni_wrapper::DepthImage> & depth,  float constant_in);
+    void processOpenNIRGBD( const RGBDContainer::openni_image_ptr & image,
+                            const RGBDContainer::openni_depth_ptr & depth, float constant_in);
+//    #ifdef USE_OPENNI2
+//        void processOpenNIRGBD( const pcl::io::openni2::Image::Ptr & image ,
+//                                const pcl::io::openni2::DepthImage::Ptr & depth, float rf);
+//    #else
+//        void processOpenNIRGBD( const boost::shared_ptr<openni_wrapper::Image>     & image ,
+//                                const boost::shared_ptr<openni_wrapper::DepthImage> & depth,  float constant_in);
+//    #endif /* USE_OPENNI2 */
+
+#endif /* PCL_OPENNI_DEVICE_SUPPORT */
+
     /**
     Rotates and translates a point cloud. Here it's made to use the same memory for the output (contrary to PCL)
     */
-    void transformPointCloud(pcl::PointCloud<pcl::PointNormal>::Ptr cloud, PyArrayObject * R, PyArrayObject * T);
+    void transformPointCloud(RGBDContainer::PointCloudPtr cloud, PyArrayObject * R, PyArrayObject * T);
 
     /**
     Some devices provide data that it's mirrored. This function mirrors it back to normal
@@ -148,28 +161,31 @@ private:
     void mirrorDepth(unsigned short * depth_buffer);
     void mirrorRGB(unsigned char* image);
 
-    class myOpenNIGrabber : public pcl::OpenNIGrabber{
-       /**
+#ifdef PCL_OPENNI_DEVICE_SUPPORT
+    /**
        This is a solution to access some protected methods from the OpenNIGrabber
-       */
-    public:
-        myOpenNIGrabber (const std::string &device_id="", const Mode &depth_mode=OpenNI_Default_Mode, const Mode &image_mode=OpenNI_Default_Mode): pcl::OpenNIGrabber::OpenNIGrabber(device_id, depth_mode, image_mode){}
-        virtual ~myOpenNIGrabber() throw () {}
+    */
+    #ifdef USE_OPENNI2
+        class myOpenNIGrabber : public pcl::io::OpenNI2Grabber{
+        public:
+            myOpenNIGrabber (const std::string& device_id = "", const Mode& depth_mode = OpenNI_Default_Mode, const Mode& image_mode = OpenNI_Default_Mode) {}
+    #else
+        class myOpenNIGrabber : public pcl::OpenNIGrabber{
+        public:
+            myOpenNIGrabber (const std::string &device_id = "", const Mode &depth_mode=OpenNI_Default_Mode, const Mode &image_mode=OpenNI_Default_Mode): pcl::OpenNIGrabber::OpenNIGrabber(device_id, depth_mode, image_mode){}
+    #endif /* USE_OPENNI2 */
+            virtual ~myOpenNIGrabber() throw () {}
 
-        void mySetSynchronization(){
-            device_->setSynchronization (true);
-        }
+            void myGetDimensions (int &rgb_width, int &rgb_height, int &depth_width, int &depth_height) const;
 
-        void myGetDimensions (int &rgb_width, int &rgb_height, int &depth_width, int &depth_height) const;
+            void myGetRGBCameraIntrinsics (double &rgb_focal_length_x, double &rgb_focal_length_y, double &rgb_principal_point_x, double &rgb_principal_point_y) const;
 
-        void myGetRGBCameraIntrinsics (double &rgb_focal_length_x, double &rgb_focal_length_y, double &rgb_principal_point_x, double &rgb_principal_point_y) const;
-
-        void myGetDepthCameraIntrinsics (double &depth_focal_length_x, double &depth_focal_length_y, double &depth_principal_point_x, double &depth_principal_point_y) const;
+            void myGetDepthCameraIntrinsics (double &depth_focal_length_x, double &depth_focal_length_y, double &depth_principal_point_x, double &depth_principal_point_y) const;
     };
     // Streaming class with slight modifications to access protected members
     myOpenNIGrabber * interface;
-    // Normals computation
-    pcl::IntegralImageNormalEstimation<pcl::PointNormal, pcl::PointNormal> ne;
+
+#endif /* PCL_OPENNI_DEVICE_SUPPORT */
 
     // The calibration thread
     boost::shared_ptr<boost::thread> ptr_thread;
@@ -192,9 +208,12 @@ private:
     // When using numpy data (from recorded arrays)
     PyObject * py_depth_to_calibrate;
     PyObject * py_rgb_to_calibrate;
+
+#ifdef PCL_OPENNI_DEVICE_SUPPORT
     // When using openni data (from a device)
-    boost::shared_ptr<openni_wrapper::Image> openni_rgb_to_calibrate;
-    boost::shared_ptr<openni_wrapper::DepthImage> openni_depth_to_calibrate;
+    RGBDContainer::openni_image_ptr openni_rgb_to_calibrate;
+    RGBDContainer::openni_depth_ptr openni_depth_to_calibrate;
+#endif /* PCL_OPENNI_DEVICE_SUPPORT */
 
     // ----- Post calibration variables ---------
     bool calibrated_data_available;
@@ -202,9 +221,11 @@ private:
     // When using numpy data (from recorded arrays)
     PyObject * py_calibrated_depth;
     PyObject * py_calibrated_rgb;
+#ifdef PCL_OPENNI_DEVICE_SUPPORT
     // When using openni data (from a device)
-    boost::shared_ptr<openni_wrapper::Image> openni_calibrated_rgb;
-    boost::shared_ptr<openni_wrapper::DepthImage> openni_calibrated_depth;
+    RGBDContainer::openni_image_ptr openni_calibrated_rgb;
+    RGBDContainer::openni_depth_ptr openni_calibrated_depth;
+#endif /* PCL_OPENNI_DEVICE_SUPPORT */
     // Additional rgb buffer. Might be generated from openni_wrapper::Image, e.g. when the camera is not RGB, but YUV422
     unsigned char * calibrated_rgb_buffer;
     bool malloc_calibrated_rgb_buffer;  // indicates whether the buffer had to be allocated using malloc
@@ -212,7 +233,7 @@ private:
     bool calibrated_data_registered;
     bool calibrated_data_normals_computed;
     // The point cloud generated from the calibration
-    pcl::PointCloud<pcl::PointNormal>::Ptr calibrated_point_cloud;
+    RGBDContainer::PointCloudPtr calibrated_point_cloud;
     // The camera objects contain most parameters to calibrate the data
     camera * rgb_cam;
     depth_camera * depth_cam;

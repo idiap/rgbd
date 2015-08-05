@@ -22,3 +22,6 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>
 
 #define A_VARIABLE_IN_CONFIG 1
 
+#cmakedefine PCL_OPENNI_DEVICE_SUPPORT
+
+#cmakedefine USE_OPENNI2

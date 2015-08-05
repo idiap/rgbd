@@ -23,6 +23,11 @@ endif(COMMAND cmake_policy)
 ##      SEARCH FOR DEPENDENCIES
 ####################################################
 OPTION(CMAKE_VERBOSE_MAKEFILE ON)
+
+# If this option stays OFF, then no connected device is expected. Only processing recorded data
+OPTION(INCLUDE_PCL_DEVICE_SUPPORT "Include PCL/OpenNI support" OFF)
+# The selection of the OpenNI version is here exclusive
+OPTION(USE_OPENNI2 "Compile for OpenNI2 instead of OpenNI" OFF)
 MESSAGE (" Path :" ${CMAKE_MODULE_PATH})
 set(CMAKE_MODULE_PATH  ${CMAKE_MODULE_PATH} "${PROJECT_SOURCE_DIR}/cmakeModules")
 MESSAGE ("Path :" ${CMAKE_MODULE_PATH})
@@ -35,10 +40,17 @@ FIND_PACKAGE(OpenCV 2.4 REQUIRED)
 FIND_PACKAGE(OpenGL REQUIRED)
 FIND_PACKAGE(PyOpenGL REQUIRED)
 FIND_PACKAGE(PySide REQUIRED)
-FIND_PACKAGE(Boost REQUIRED)
-FIND_PACKAGE(PCL 1.7 REQUIRED)
-include_directories(${PCL_INCLUDE_DIRS})
-link_directories(${PCL_LIBRARY_DIRS})
+FIND_PACKAGE(Boost REQUIRED thread system)
+IF(INCLUDE_PCL_DEVICE_SUPPORT)
+    FIND_PACKAGE(PCL 1.7)
+    IF(PCL_FOUND)
+      include_directories(${PCL_INCLUDE_DIRS})
+      link_directories(${PCL_LIBRARY_DIRS})
+      SET(PCL_OPENNI_DEVICE_SUPPORT ON)
+    ENDIF(PCL_FOUND)
+ENDIF(INCLUDE_PCL_DEVICE_SUPPORT)
+
+link_directories(${Boost_LIBRARY_DIRS})
 
 ################### Finds OS ####################
 IF(${CMAKE_SYSTEM_NAME} MATCHES "Darwin")
@@ -71,7 +83,7 @@ MACRO(MYSWIG_ADD_MODULE name)
   SWIG_ADD_MODULE(${name} python ${name}.i ${name}.cpp ${name}.h)
   INCLUDE_DIRECTORIES(${CMAKE_CURRENT_SOURCE_DIR} ${OpenCV_INCLUDE_DIRS})
   SET_TARGET_PROPERTIES(${SWIG_MODULE_${name}_REAL_NAME} PROPERTIES LINK_FLAGS "${GLOBAL_SWIG_LINK_FLAGS}" LIBRARY_OUTPUT_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}")
-  SWIG_LINK_LIBRARIES(${name} ${PYTHON_LIBRARIES} ${OpenCV_LDFLAGS})
+  SWIG_LINK_LIBRARIES(${name} ${PYTHON_LIBRARIES} ${OpenCV_LDFLAGS} ${Boost_LIBRARIES})
 ENDMACRO(MYSWIG_ADD_MODULE)
 
 ######### Configuration files for the project ########
